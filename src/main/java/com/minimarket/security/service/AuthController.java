@@ -3,7 +3,7 @@ package com.minimarket.security.service;
 import com.minimarket.entity.Rol;
 import com.minimarket.entity.Usuario;
 import com.minimarket.repository.RolRepository;
-import com.minimarket.repository.UsuarioRepository;
+import com.minimarket.service.UsuarioService;
 import com.minimarket.security.model.LoginRequest;
 import com.minimarket.security.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +16,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import lombok.extern.slf4j.Slf4j;
  
 import java.util.HashMap;
 import java.util.HashSet;
@@ -29,6 +30,7 @@ import java.util.Set;
  *   POST /api/auth/login    → autentica y retorna JWT
  *   POST /api/auth/registro → registra nuevo usuario
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -40,7 +42,7 @@ public class AuthController {
     private JwtUtil jwtUtil;
  
     @Autowired
-    private UsuarioRepository usuarioRepository;
+    private UsuarioService usuarioService;
  
     @Autowired
     private RolRepository rolRepository;
@@ -70,6 +72,7 @@ public class AuthController {
      */
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest loginRequest) {
+        log.info("Intento de login para el usuario: {}", loginRequest.getUsername());
         try {
             // 1. Delegar autenticación a Spring Security (verifica usuario y contraseña BCrypt)
             Authentication authentication = authenticationManager.authenticate(
@@ -91,9 +94,11 @@ public class AuthController {
             response.put("tipo", "Bearer");
             response.put("username", userDetails.getUsername());
  
+            log.info("Login exitoso para el usuario: {}", userDetails.getUsername());
             return ResponseEntity.ok(response);
  
         } catch (BadCredentialsException e) {
+            log.warn("Fallo de autenticación para el usuario: {}. Motivo: Credenciales inválidas", loginRequest.getUsername());
             // No revelar si el error es de usuario o contraseña (buena práctica de seguridad)
             Map<String, String> error = new HashMap<>();
             error.put("error", "Credenciales inválidas");
@@ -126,9 +131,12 @@ public class AuthController {
         String username = registroRequest.get("username");
         String password = registroRequest.get("password");
         String rolNombre = registroRequest.getOrDefault("rol", "CLIENTE");
+
+        log.info("Intento de registro de nuevo usuario: {}", username);
  
         // Validar que no exista el username
-        if (usuarioRepository.findByUsername(username).isPresent()) {
+        if (usuarioService.findByUsername(username).isPresent()) {
+            log.warn("Fallo en el registro: El username {} ya está en uso", username);
             Map<String, String> error = new HashMap<>();
             error.put("error", "El username ya está en uso");
             return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
@@ -148,11 +156,12 @@ public class AuthController {
         roles.add(rol);
         nuevoUsuario.setRoles(roles);
  
-        usuarioRepository.save(nuevoUsuario);
+        Usuario usuarioGuardado = usuarioService.save(nuevoUsuario);
  
+        log.info("Usuario registrado exitosamente: {}", usuarioGuardado.getUsername());
         Map<String, String> response = new HashMap<>();
         response.put("mensaje", "Usuario registrado exitosamente");
-        response.put("username", username);
+        response.put("username", usuarioGuardado.getUsername());
  
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }

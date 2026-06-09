@@ -12,9 +12,11 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import lombok.extern.slf4j.Slf4j;
  
 import java.io.IOException;
 
+@Slf4j
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
  
@@ -55,36 +57,44 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // 3. Solo continuar si se extrajo username Y aún no hay autenticación en el contexto
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
  
-            // 4. Cargar los datos del usuario desde la base de datos
-            UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+            try {
+                // 4. Cargar los datos del usuario desde la base de datos
+                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
-            if (!userDetails.isAccountNonExpired()
-                    || !userDetails.isAccountNonLocked()
-                    || !userDetails.isCredentialsNonExpired()
-                    || !userDetails.isEnabled()) {
-                filterChain.doFilter(request, response);
-                return;
-            }
+                if (!userDetails.isAccountNonExpired()
+                        || !userDetails.isAccountNonLocked()
+                        || !userDetails.isCredentialsNonExpired()
+                        || !userDetails.isEnabled()) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
  
-            // 5. Validar el token contra ese usuario
-            if (jwtUtil.isTokenValid(jwt, userDetails)) {
+                // 5. Validar el token contra ese usuario
+                if (jwtUtil.isTokenValid(jwt, userDetails)) {
  
-                // 6. Crear el objeto de autenticación con los roles del usuario
-                UsernamePasswordAuthenticationToken authToken =
-                        new UsernamePasswordAuthenticationToken(
-                                userDetails,
-                                null,                           // credentials null (ya autenticado con JWT)
-                                userDetails.getAuthorities()    // roles/permisos del usuario
-                        );
+                    // 6. Crear el objeto de autenticación con los roles del usuario
+                    UsernamePasswordAuthenticationToken authToken =
+                            new UsernamePasswordAuthenticationToken(
+                                    userDetails,
+                                    null,                           // credentials null (ya autenticado con JWT)
+                                    userDetails.getAuthorities()    // roles/permisos del usuario
+                            );
  
-                // Adjuntar detalles del request (IP, session ID, etc.)
-                authToken.setDetails(
-                        new WebAuthenticationDetailsSource().buildDetails(request)
-                );
+                    // Adjuntar detalles del request (IP, session ID, etc.)
+                    authToken.setDetails(
+                            new WebAuthenticationDetailsSource().buildDetails(request)
+                    );
  
-                // 7. Registrar la autenticación en el SecurityContext de Spring
-                // A partir de aquí, Spring Security reconoce al usuario como autenticado
-                SecurityContextHolder.getContext().setAuthentication(authToken);
+                    // 7. Registrar la autenticación en el SecurityContext de Spring
+                    // A partir de aquí, Spring Security reconoce al usuario como autenticado
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                }
+            } catch (org.springframework.security.core.userdetails.UsernameNotFoundException e) {
+                // Usuario no existe en la BD: no autenticar y dejar que el filtro de seguridad maneje el acceso
+                log.warn("Intento de acceso con token de usuario inexistente: {}", username);
+            } catch (Exception e) {
+                // Cualquier otro error durante la carga del usuario
+                log.error("Error inesperado al cargar el usuario {}: {}", username, e.getMessage());
             }
         }
  
